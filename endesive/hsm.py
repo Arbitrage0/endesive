@@ -352,3 +352,38 @@ class SSHAgentHSM(BaseHSM):
         else:
             raise ValueError(alg)
         return sig
+
+
+class GoogleHSM(BaseHSM):
+    def __init__(self, project_id, location_id, key_ring_id, key_id, version_id):
+        self.project_id = project_id
+        self.location_id = location_id
+        self.key_ring_id = key_ring_id
+        self.key_id = key_id
+        self.version_id = version_id
+
+    def certificate(self):
+        cert = open('path/to/certificate.crt.pem', 'rb').read()
+        return 1, cert
+
+    def sign(self, keyid, data, mech):
+       
+        """ 
+        Following the example here: 
+        https://github.com/googleapis/python-kms/blob/master/samples/snippets/sign_asymmetric.py 
+        """
+        
+        from google.cloud import kms
+        
+        client = kms.KeyManagementServiceClient()
+        key_version_name = client.crypto_key_version_path(
+            self.project_id, 
+            self.location_id, 
+            self.key_ring_id, 
+            self.key_id, 
+            self.version_id
+        )
+        hash_ = getattr(hashlib, mech.lower())(data).digest()
+        digest = {mech.lower(): hash_}
+        sign_response = client.asymmetric_sign(request={'name': key_version_name, 'digest': digest})
+        return sign_response.signature
