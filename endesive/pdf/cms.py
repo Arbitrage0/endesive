@@ -379,7 +379,7 @@ class SignedData(pdf.PdfFileWriter):
         self.x_root = po.IndirectObject(x_root.idnum, 0, self)
         self.x_info = prev.trailer.get("/Info")
 
-    def sign(self, datau, udct, key, cert, othercerts, algomd, hsm, timestampurl, timestampcredentials=None):
+    def sign(self, datau, udct, key, cert, othercerts, algomd, hsm, timestampurl, timestampcredentials=None, md_request=False, signed_value_signature=None):
         startdata = len(datau)
 
         fi = io.BytesIO(datau)
@@ -409,6 +409,9 @@ class SignedData(pdf.PdfFileWriter):
         aligned = udct.get("aligned", 0)
         if aligned:
             zeros = b"00" * aligned
+        elif not aligned and md_request:
+            e = "Unsupported operation: can only request digests where aligned is not 0"
+            raise Exception(e)
         else:
             md = getattr(hashlib, algomd)().digest()
             contents = signer.sign(
@@ -470,22 +473,29 @@ class SignedData(pdf.PdfFileWriter):
         md = md.digest()
 
         contents = signer.sign(
-            None, key, cert, othercerts, algomd, True, md, hsm, False, timestampurl, timestampcredentials
+            None, key, cert, othercerts, algomd, True, md, hsm, False, timestampurl, timestampcredentials, md_request=md_request, signed_value_signature=signed_value_signature
         )
-        contents = contents.hex().encode("utf-8")
-        if aligned:
-            nb = len(zeros) - len(contents)
-            contents += b"0" * nb
-        assert len(zeros) == len(contents)
+        if md_request:
+            return contents #should return a list with [data to be signed, hashing algorithm]
+        else:
+            contents = contents.hex().encode("utf-8")
+            if aligned:
+                nb = len(zeros) - len(contents)
+                contents += b"0" * nb
+            assert len(zeros) == len(contents)
 
-        datas = datas.replace(zeros, contents, 1)
+            datas = datas.replace(zeros, contents, 1)
 
-        return datas
+            return datas
 
 
+def getDataToSign(datau, udct, cert, othercerts, algomd="sha1"): 
+    cls = SignedData()
+    return cls.sign(datau, udct, None, cert, othercerts, algomd, hsm=None, timestampurl=None, timestampcredentials=None, md_request=True, signed_value_signature=None)
+    
 def sign(
         datau, udct, key, cert, othercerts, algomd="sha1", hsm=None, timestampurl=None,
-        timestampcredentials=None
+        timestampcredentials=None, md_request=False, signed_value_signature=None
 ):
     """
     parameters:
@@ -527,4 +537,4 @@ def sign(
     returns: bytes ready for writing after unsigned pdf document containing its electronic signature
     """
     cls = SignedData()
-    return cls.sign(datau, udct, key, cert, othercerts, algomd, hsm, timestampurl, timestampcredentials)
+    return cls.sign(datau, udct, key, cert, othercerts, algomd, hsm, timestampurl, timestampcredentials, md_request, signed_value_signature)
