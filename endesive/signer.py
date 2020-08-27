@@ -27,7 +27,7 @@ def cert2asn(cert, cert_bytes=True):
         _, _, cert_bytes = pem.unarmor(cert_bytes)
     return x509.Certificate.load(cert_bytes)
 
-def sign(datau, key, cert, othercerts, hashalgo, attrs=True, signed_value=None, hsm=None, pss=False, timestampurl=None, timestampcredentials=None):
+def sign(datau, key, cert, othercerts, hashalgo, attrs=True, signed_value=None, hsm=None, pss=False, timestampurl=None, timestampcredentials=None, md_request=False, signed_value_signature=None):
     if signed_value is None:
         signed_value = getattr(hashlib, hashalgo)(datau).digest()
     signed_time = datetime.now(tz=util.timezone.utc)
@@ -58,6 +58,9 @@ def sign(datau, key, cert, othercerts, hashalgo, attrs=True, signed_value=None, 
     }
     if not pss:
         signer['signature_algorithm'] = algos.SignedDigestAlgorithm({'algorithm': 'rsassa_pkcs1v15'})
+    elif pss and md_request and key is None:
+        e = "Currently unsupported operation: PSS requires a key input."
+        raise Exception(e)
     else:
         if isinstance(key, keys.PrivateKeyInfo):
             salt_length = key.byte_size - hashes.SHA512.digest_size - 2
@@ -122,41 +125,46 @@ def sign(datau, key, cert, othercerts, hashalgo, attrs=True, signed_value=None, 
         tosign = b'\x31' + tosign[1:]
     else:
         tosign = datau
-    if hsm is not None:
-        signed_value_signature = hsm.sign(keyid, tosign, hashalgo)
-    elif isinstance(key, keys.PrivateKeyInfo):
-        key = asymmetric.load_private_key(key)
-        if pss:
-            signed_value_signature = asymmetric.rsa_pss_sign(
-                key,
-                tosign,
-                'sha512'
-            )
+    
+    if md_request:
+        return [tosign,  hashalgo]
+    
+    if signed_value_signature is None:
+        if hsm is not None:
+            signed_value_signature = hsm.sign(keyid, tosign, hashalgo)
+        elif isinstance(key, keys.PrivateKeyInfo):
+            key = asymmetric.load_private_key(key)
+            if pss:
+                signed_value_signature = asymmetric.rsa_pss_sign(
+                    key,
+                    tosign,
+                    'sha512'
+                )
+            else:
+                signed_value_signature = asymmetric.rsa_pkcs1v15_sign(
+                    key,
+                    tosign,
+                    hashalgo.lower()
+                )
         else:
-            signed_value_signature = asymmetric.rsa_pkcs1v15_sign(
-                key,
-                tosign,
-                hashalgo.lower()
-            )
-    else:
-        if pss:
-            hasher = hashes.Hash(hashes.SHA512(), backend=backends.default_backend())
-            hasher.update(tosign)
-            digest = hasher.finalize()
-            signed_value_signature = key.sign(
-                digest,
-                padding.PSS(
-                    mgf=padding.MGF1(hashes.SHA512()),
-                    salt_length=salt_length
-                ),
-                utils.Prehashed(hashes.SHA512())
-            )
-        else:
-            signed_value_signature = key.sign(
-                tosign,
-                padding.PKCS1v15(),
-                getattr(hashes, hashalgo.upper())()
-            )
+            if pss:
+                hasher = hashes.Hash(hashes.SHA512(), backend=backends.default_backend())
+                hasher.update(tosign)
+                digest = hasher.finalize()
+                signed_value_signature = key.sign(
+                    digest,
+                    padding.PSS(
+                        mgf=padding.MGF1(hashes.SHA512()),
+                        salt_length=salt_length
+                    ),
+                    utils.Prehashed(hashes.SHA512())
+                )
+            else:
+                signed_value_signature = key.sign(
+                    tosign,
+                    padding.PKCS1v15(),
+                    getattr(hashes, hashalgo.upper())()
+                )
 
     if timestampurl is not None:
         signed_value = getattr(hashlib, hashalgo)(signed_value_signature).digest()
