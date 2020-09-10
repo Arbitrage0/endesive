@@ -5,7 +5,7 @@ import os
 import sys
 import binascii
 import datetime
-import PyKCS11
+#import PyKCS11
 import base64
 import hashlib
 
@@ -43,7 +43,7 @@ class BaseHSM:
         """
         raise NotImplementedError()
 
-
+"""
 class HSM(BaseHSM):
     def __init__(self, dllpath):
         self.pkcs11 = PyKCS11.PyKCS11Lib()
@@ -239,7 +239,7 @@ class HSM(BaseHSM):
         open(fname+'.der', 'wb').write(der_bytes)
         open(fname+'.pem', 'wb').write(pem_bytes)
 
-
+"""
 class SSHAgentHSM(BaseHSM):
     def __init__(self, cert):
         assert isinstance(cert, cryptography.x509.Certificate)
